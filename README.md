@@ -1,36 +1,129 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+┌──────────────────────────────────────────────────────────────┐
+│  █▄▄ █▀█ █▀█   ▄▀█ █░█ ▀█▀ █░█      bro-auth                │
+│  █▄█ █▀▄ █▄█   █▀█ █▀█ ░█░ █▀█                              │
+├──────────────────────────────────────────────────────────────┤
+│     Stateless JWT · Device Fingerprinting · Zero Replay      │
+└──────────────────────────────────────────────────────────────┘
 
-## Getting Started
+# bro-auth
+A lightweight, **stateless**, and **high-security** authentication layer using:
 
-First, run the development server:
+✅ JWT access tokens  
+✅ Refresh tokens  
+✅ Device fingerprint binding (prevents stolen-token replay)  
+✅ No database required  
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+bro-auth aims to provide **DPoP-inspired protection** without the complexity.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## 🚀 Features
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- 🔐 **Stateless JWT authentication**
+- 🆔 **Device fingerprint binding** (SHA-256 hashed)
+- 🚫 **Replay attack protection** (tokens tied to a specific browser)
+- ⚡ Lightweight, zero dependencies except `jsonwebtoken` + `crypto-es`
+- 🧩 Works with ANY backend (Next.js, Express, Node HTTP)
+- 🌐 Browser module provided for fingerprint extraction
+- 📦 Ready for NPM consumption
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 📦 Installation
+npm install bro-auth
+yarn add bro-auth
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🧠 How it Works (Simple Explanation)
 
-## Deploy on Vercel
+1️⃣ Client generates a **device fingerprint** using the browser module.  
+2️⃣ Client sends that fingerprint to backend during login.  
+3️⃣ Server issues JWT **access token** + **refresh token**, both bound to that fingerprint.  
+4️⃣ On every request, server verifies:
+- token signature  
+- expiry  
+- **fingerprint match**  
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+If an attacker steals the token and tries using another browser:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+❌ The fingerprint mismatch blocks them.  
+✔ User stays secure even without database.
+
+---
+
+# 🛜 Browser: Get Device Fingerprint
+
+# Import from the browser bundle:
+
+import { getFingerprint } from "bro-auth/browser";
+
+async function run() {
+  const fp = await getFingerprint();
+
+  console.log("Fingerprint Hash:", fp.hash);
+  console.log("Raw:", fp.raw);
+  console.log("Components:", fp.components);
+
+  // Send fp.hash to backend during login
+}
+run();
+
+
+# Output example:
+
+{
+  "hash": "53ff76d8...2696",
+  "raw": "UA|screen|gpu|canvas|...",
+  "components": {
+    "userAgent": "...",
+    "gpu": "...",
+    "canvas": "data:image/png;base64,..."
+  }
+}
+
+# This hash must be sent to the server during login.
+
+
+# 🔑 Server: Generate Tokens
+import {
+  generateTokens,
+  verifyAccessToken,
+  verifyRefreshToken,
+  generateFingerprintHash,
+  buildRefreshCookie
+} from "bro-auth";
+
+Generate Access + Refresh Tokens
+const ACCESS_SECRET = process.env.ACCESS_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
+
+const { accessToken, refreshToken } = generateTokens({
+  userId: "123",
+  fingerprintHash,
+  accessSecret: ACCESS_SECRET,
+  refreshSecret: REFRESH_SECRET,
+});
+
+# 🧪 Verify Access Token
+const result = verifyAccessToken(accessToken, fingerprintHash, ACCESS_SECRET);
+
+if (!result.valid) {
+  return { error: "Token invalid" };
+}
+
+console.log(result.payload.userId); // OK
+
+# 🔄 Verify Refresh Token
+const result = verifyRefreshToken(refreshToken, fingerprintHash, REFRESH_SECRET);
+
+if (result.valid) {
+  // Issue new tokens
+}
+
+# 🍪 Refresh Token Cookie Helper
+const cookie = buildRefreshCookie(refreshToken);
+
+// Set on response
+res.setHeader("Set-Cookie", cookie);
+

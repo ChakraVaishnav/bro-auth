@@ -1,23 +1,53 @@
 {
   "name": "bro-auth",
   "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+  "description": "bro-auth — Stateless, fingerprint-bound JWT authentication. Server utilities + browser fingerprinting module.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "browser": "dist/browser.mjs",
+  "exports": {
+  ".": {
+    "import": "./dist/index.js",
+    "require": "./dist/index.cjs"
   },
+  "./browser": {
+    "import": "./dist/browser.js",
+    "require": "./dist/browser.cjs"
+  }
+}
+,
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+  "clean": "rimraf dist",
+  "build:server": "tsup src/core/index.js --format cjs,esm --no-dts --out-dir dist",
+  "build:browser": "tsup src/browser/index.js --format cjs,esm --no-dts --out-dir dist --platform browser",
+  "build": "npm run clean && npm run build:server && npm run build:browser",
+  "prepack": "npm run build",
+  "test": "node --input-type=module -e \"import * as core from './dist/index.js'; console.log('core exports:', Object.keys(core));\""
+},
+  "keywords": [
+    "jwt",
+    "authentication",
+    "browser fingerprint",
+    "token binding",
+    "security",
+    "bro-auth",
+    "auth"
+  ],
+  "author": "Vaishnav",
+  "license": "MIT",
   "dependencies": {
-    "next": "16.0.6",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "crypto-es": "^3.1.2",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.6",
-    "tailwindcss": "^4"
+    "rimraf": "^5.0.10",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   }
 }

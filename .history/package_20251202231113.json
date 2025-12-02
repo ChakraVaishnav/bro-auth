@@ -7,7 +7,7 @@
   "module": "dist/index.mjs",
   "browser": "dist/browser.mjs",
   "exports": {
-    "./core": {
+    ".": {
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
@@ -21,12 +21,14 @@
     "README.md",
     "LICENSE"
   ],
- "scripts": {
-  "clean": "rimraf dist",
-  "build": "npm run clean && tsup"
-}
-
-,
+  "scripts": {
+    "clean": "rimraf dist",
+    "build:server": "tsup src/core/index.js --format cjs,esm --no-dts --out-dir dist",
+    "build:browser": "tsup src/browser/index.js --format cjs,esm --no-dts --out-dir dist --platform browser",
+    "build": "npm run clean && npm run build:server && npm run build:browser",
+    "prepack": "npm run build",
+    "test": "node --input-type=module -e \"import * as core from './dist/index.js'; console.log('core exports:', Object.keys(core));\""
+  },
   "keywords": [
     "jwt",
     "authentication",

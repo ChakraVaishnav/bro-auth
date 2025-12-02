@@ -7,7 +7,7 @@
   "module": "dist/index.mjs",
   "browser": "dist/browser.mjs",
   "exports": {
-    "./core": {
+    ".": {
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
@@ -21,12 +21,15 @@
     "README.md",
     "LICENSE"
   ],
- "scripts": {
+  "scripts": {
   "clean": "rimraf dist",
-  "build": "npm run clean && tsup"
-}
 
-,
+  "build:server": "tsup src/index.js --format cjs,esm --out-dir dist --dts false --out-extension cjs=.cjs --out-extension esm=.js --target node",
+
+  "build:browser": "tsup src/browser/index.js --format cjs,esm --out-dir dist --dts false --out-extension cjs=.cjs --out-extension esm=.js --platform browser --name browser",
+
+  "build": "npm run clean && npm run build:server && npm run build:browser"
+},
   "keywords": [
     "jwt",
     "authentication",

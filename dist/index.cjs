@@ -1,6 +1,8 @@
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -14,63 +16,140 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/browser/index.js
-var index_exports = {};
-__export(index_exports, {
-  getFingerprint: () => getFingerprint
+// src/core/index.js
+var core_exports = {};
+__export(core_exports, {
+  buildClearRefreshCookie: () => buildClearRefreshCookie,
+  buildRefreshCookie: () => buildRefreshCookie,
+  generateAccessToken: () => generateAccessToken,
+  generateFingerprintHash: () => generateFingerprintHash,
+  generateRefreshToken: () => generateRefreshToken,
+  generateTokens: () => generateTokens,
+  verifyAccessToken: () => verifyAccessToken,
+  verifyRefreshToken: () => verifyRefreshToken
 });
-module.exports = __toCommonJS(index_exports);
+module.exports = __toCommonJS(core_exports);
 
-// src/browser/fingerprint.js
+// src/core/fingerprint.js
 var import_crypto_es = require("crypto-es");
-async function getCanvasFingerprint() {
+function generateFingerprintHash(rawString) {
+  return (0, import_crypto_es.SHA256)(rawString).toString();
+}
+
+// src/core/tokens.js
+var import_jsonwebtoken = __toESM(require("jsonwebtoken"), 1);
+function generateAccessToken(userId, fpHash, secret, expiresIn = "15m") {
+  return import_jsonwebtoken.default.sign(
+    {
+      sub: userId,
+      fp: fpHash,
+      type: "access"
+    },
+    secret,
+    { expiresIn }
+  );
+}
+function generateRefreshToken(userId, fpHash, secret, expiresIn = "7d") {
+  return import_jsonwebtoken.default.sign(
+    {
+      sub: userId,
+      fp: fpHash,
+      type: "refresh"
+    },
+    secret,
+    { expiresIn }
+  );
+}
+function generateTokens(userId, fpHash, accessSecret, refreshSecret) {
+  const accessToken = generateAccessToken(userId, fpHash, accessSecret);
+  const refreshToken = generateRefreshToken(userId, fpHash, refreshSecret);
+  return { accessToken, refreshToken };
+}
+
+// src/core/verify.js
+var import_jsonwebtoken2 = __toESM(require("jsonwebtoken"), 1);
+function safeCompare(a = "", b = "") {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+function verifyAccessToken(token, fpHash, secret) {
   try {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    ctx.textBaseline = "top";
-    ctx.font = "14px 'Arial'";
-    ctx.fillStyle = "#f60";
-    ctx.fillRect(0, 0, 100, 20);
-    ctx.fillStyle = "#000";
-    ctx.fillText("bro-auth-fingerprint", 2, 15);
-    return canvas.toDataURL();
-  } catch {
-    return "no-canvas";
+    const decoded = import_jsonwebtoken2.default.verify(token, secret);
+    if (decoded.type !== "access") {
+      return { valid: false, error: "Invalid token type" };
+    }
+    if (!safeCompare(decoded.fp, fpHash)) {
+      return { valid: false, error: "Fingerprint mismatch" };
+    }
+    return { valid: true, payload: decoded };
+  } catch (err) {
+    return { valid: false, error: err.message };
   }
 }
-function getGPUFingerprint() {
+function verifyRefreshToken(token, fpHash, secret) {
   try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    if (!gl) return "no-webgl";
-    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-    return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "no-renderer";
-  } catch {
-    return "no-webgl";
+    const decoded = import_jsonwebtoken2.default.verify(token, secret);
+    if (decoded.type !== "refresh") {
+      return { valid: false, error: "Invalid token type" };
+    }
+    if (!safeCompare(decoded.fp, fpHash)) {
+      return { valid: false, error: "Fingerprint mismatch" };
+    }
+    return { valid: true, payload: decoded };
+  } catch (err) {
+    return { valid: false, error: err.message };
   }
 }
-async function getFingerprint() {
-  const components = {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    languages: navigator.languages.join(","),
-    screen: `${screen.width}x${screen.height}`,
-    colorDepth: screen.colorDepth,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    timezoneOffset: (/* @__PURE__ */ new Date()).getTimezoneOffset(),
-    cpuCores: navigator.hardwareConcurrency || "unknown",
-    deviceMemory: navigator.deviceMemory || "unknown",
-    gpu: getGPUFingerprint(),
-    canvas: await getCanvasFingerprint()
-  };
-  const rawString = Object.values(components).join("|");
-  const fpHash = (0, import_crypto_es.SHA256)(rawString).toString();
+
+// src/core/cookies.js
+function buildRefreshCookie(token, maxAge = 60 * 60 * 24 * 7) {
   return {
-    raw: rawString,
-    hash: fpHash,
-    components
+    name: "bro_refresh",
+    value: token,
+    options: {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge
+    }
   };
 }
+function buildClearRefreshCookie() {
+  return {
+    name: "bro_refresh",
+    value: "",
+    options: {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 0
+    }
+  };
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  buildClearRefreshCookie,
+  buildRefreshCookie,
+  generateAccessToken,
+  generateFingerprintHash,
+  generateRefreshToken,
+  generateTokens,
+  verifyAccessToken,
+  verifyRefreshToken
+});

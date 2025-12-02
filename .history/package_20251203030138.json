@@ -21,11 +21,15 @@
     "README.md",
     "LICENSE"
   ],
- "scripts": {
+  "scripts": {
   "clean": "rimraf dist",
-  "build": "npm run clean && tsup"
-}
 
+  "build:server": "tsup src/index.js --format esm,cjs --target node --dts false --out-dir dist --silent",
+
+  "build:browser": "tsup src/browser/index.js --format esm,cjs --target browser --dts false --out-dir dist --silent --name browser",
+
+  "build": "npm run clean && npm run build:server && npm run build:browser"
+}
 ,
   "keywords": [
     "jwt",

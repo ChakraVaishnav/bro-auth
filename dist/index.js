@@ -1,54 +1,112 @@
-// src/browser/fingerprint.js
+// src/core/fingerprint.js
 import { SHA256 } from "crypto-es";
-async function getCanvasFingerprint() {
+function generateFingerprintHash(rawString) {
+  return SHA256(rawString).toString();
+}
+
+// src/core/tokens.js
+import jwt from "jsonwebtoken";
+function generateAccessToken(userId, fpHash, secret, expiresIn = "15m") {
+  return jwt.sign(
+    {
+      sub: userId,
+      fp: fpHash,
+      type: "access"
+    },
+    secret,
+    { expiresIn }
+  );
+}
+function generateRefreshToken(userId, fpHash, secret, expiresIn = "7d") {
+  return jwt.sign(
+    {
+      sub: userId,
+      fp: fpHash,
+      type: "refresh"
+    },
+    secret,
+    { expiresIn }
+  );
+}
+function generateTokens(userId, fpHash, accessSecret, refreshSecret) {
+  const accessToken = generateAccessToken(userId, fpHash, accessSecret);
+  const refreshToken = generateRefreshToken(userId, fpHash, refreshSecret);
+  return { accessToken, refreshToken };
+}
+
+// src/core/verify.js
+import jwt2 from "jsonwebtoken";
+function safeCompare(a = "", b = "") {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+function verifyAccessToken(token, fpHash, secret) {
   try {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    ctx.textBaseline = "top";
-    ctx.font = "14px 'Arial'";
-    ctx.fillStyle = "#f60";
-    ctx.fillRect(0, 0, 100, 20);
-    ctx.fillStyle = "#000";
-    ctx.fillText("bro-auth-fingerprint", 2, 15);
-    return canvas.toDataURL();
-  } catch {
-    return "no-canvas";
+    const decoded = jwt2.verify(token, secret);
+    if (decoded.type !== "access") {
+      return { valid: false, error: "Invalid token type" };
+    }
+    if (!safeCompare(decoded.fp, fpHash)) {
+      return { valid: false, error: "Fingerprint mismatch" };
+    }
+    return { valid: true, payload: decoded };
+  } catch (err) {
+    return { valid: false, error: err.message };
   }
 }
-function getGPUFingerprint() {
+function verifyRefreshToken(token, fpHash, secret) {
   try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    if (!gl) return "no-webgl";
-    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-    return debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "no-renderer";
-  } catch {
-    return "no-webgl";
+    const decoded = jwt2.verify(token, secret);
+    if (decoded.type !== "refresh") {
+      return { valid: false, error: "Invalid token type" };
+    }
+    if (!safeCompare(decoded.fp, fpHash)) {
+      return { valid: false, error: "Fingerprint mismatch" };
+    }
+    return { valid: true, payload: decoded };
+  } catch (err) {
+    return { valid: false, error: err.message };
   }
 }
-async function getFingerprint() {
-  const components = {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    languages: navigator.languages.join(","),
-    screen: `${screen.width}x${screen.height}`,
-    colorDepth: screen.colorDepth,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    timezoneOffset: (/* @__PURE__ */ new Date()).getTimezoneOffset(),
-    cpuCores: navigator.hardwareConcurrency || "unknown",
-    deviceMemory: navigator.deviceMemory || "unknown",
-    gpu: getGPUFingerprint(),
-    canvas: await getCanvasFingerprint()
-  };
-  const rawString = Object.values(components).join("|");
-  const fpHash = SHA256(rawString).toString();
+
+// src/core/cookies.js
+function buildRefreshCookie(token, maxAge = 60 * 60 * 24 * 7) {
   return {
-    raw: rawString,
-    hash: fpHash,
-    components
+    name: "bro_refresh",
+    value: token,
+    options: {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge
+    }
+  };
+}
+function buildClearRefreshCookie() {
+  return {
+    name: "bro_refresh",
+    value: "",
+    options: {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/",
+      maxAge: 0
+    }
   };
 }
 export {
-  getFingerprint
+  buildClearRefreshCookie,
+  buildRefreshCookie,
+  generateAccessToken,
+  generateFingerprintHash,
+  generateRefreshToken,
+  generateTokens,
+  verifyAccessToken,
+  verifyRefreshToken
 };

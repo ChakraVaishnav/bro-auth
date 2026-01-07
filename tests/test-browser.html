@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bro-Auth Browser Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Bro-Auth Browser Test</h1>
+    <p>Testing <code>getFingerprint()</code>...</p>
+
+    <div id="output">Running...</div>
+
+    <script type="module">
+        import { getFingerprint } from '../dist/browser.js';
+
+        async function runTest() {
+            try {
+                const outputDiv = document.getElementById('output');
+
+                const result = await getFingerprint();
+                console.log("Fingerprint Result:", result);
+
+                if (result && result.hash && typeof result.hash === 'string') {
+                    outputDiv.innerHTML = `
+                        <h3 class="success">✅ Test Passed</h3>
+                        <p><strong>Hash:</strong> ${result.hash}</p>
+                        <p>(Check console for full object if applicable)</p>
+                    `;
+                } else {
+                    throw new Error("Invalid fingerprint result structure");
+                }
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('output').innerHTML = `
+                    <h3 class="error">❌ Test Failed</h3>
+                    <p>${err.message}</p>
+                `;
+            }
+        }
+
+        runTest();
+    </script>
+</body>
+
+</html>

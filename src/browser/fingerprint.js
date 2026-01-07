@@ -20,12 +20,14 @@ async function getCanvasFingerprint() {
   }
 }
 
-
 // GPU fingerprint
 function getGPUFingerprint() {
   try {
     const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+    const gl =
+      canvas.getContext("webgl") ||
+      canvas.getContext("experimental-webgl");
+
     if (!gl) return "no-webgl";
 
     const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
@@ -37,29 +39,41 @@ function getGPUFingerprint() {
   }
 }
 
-// MAIN FUNCTION: Advanced fingerprint
+// MAIN FUNCTION: Normalized fingerprint
 export async function getFingerprint() {
   const components = {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    languages: navigator.languages.join(","),
-    screen: `${screen.width}x${screen.height}`,
-    colorDepth: screen.colorDepth,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    timezoneOffset: new Date().getTimezoneOffset(),
-    cpuCores: navigator.hardwareConcurrency || "unknown",
-    deviceMemory: navigator.deviceMemory || "unknown",
+    userAgent: navigator.userAgent || "unknown",
+    platform: navigator.platform || "unknown",
+    language: navigator.language || "unknown",
+    languages: (navigator.languages || []).join(",") || "unknown",
+    colorDepth: String(screen.colorDepth || "unknown"),
+    timezone:
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown",
+    timezoneOffset: String(new Date().getTimezoneOffset()),
+    cpuCores: String(navigator.hardwareConcurrency || "unknown"),
+    deviceMemory: String(navigator.deviceMemory || "unknown"),
     gpu: getGPUFingerprint(),
     canvas: await getCanvasFingerprint(),
   };
 
-  const rawString = Object.values(components).join("|");
-  const fpHash = SHA256(rawString).toString();
+  // ✅ Explicit order (VERY IMPORTANT)
+  const normalizedString = [
+    components.userAgent,
+    components.platform,
+    components.language,
+    components.languages,
+    components.colorDepth,
+    components.timezone,
+    components.timezoneOffset,
+    components.cpuCores,
+    components.deviceMemory,
+    components.gpu,
+    components.canvas,
+  ].join("|");
+
+  const hash = SHA256(normalizedString).toString();
 
   return {
-    raw: rawString,
-    hash: fpHash,
-    components
+    hash,
   };
 }

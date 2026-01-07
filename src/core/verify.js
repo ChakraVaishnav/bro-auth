@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { deriveSecret } from "./tokens.js";
 
 // Safe constant-time comparison (works in Node + Browser)
 function safeCompare(a = "", b = "") {
@@ -17,7 +18,13 @@ function safeCompare(a = "", b = "") {
 // ---------------------------
 export function verifyAccessToken(token, fpHash, secret) {
   try {
-    const decoded = jwt.verify(token, secret);
+    const decodedUnsafe = jwt.decode(token);
+    if (!decodedUnsafe || !decodedUnsafe.sub) {
+      return { valid: false, error: "Invalid token structure" };
+    }
+
+    const derivedSecret = deriveSecret(secret, decodedUnsafe.sub, fpHash);
+    const decoded = jwt.verify(token, derivedSecret);
 
     // Token must be type=access
     if (decoded.type !== "access") {
@@ -40,7 +47,13 @@ export function verifyAccessToken(token, fpHash, secret) {
 // ---------------------------
 export function verifyRefreshToken(token, fpHash, secret) {
   try {
-    const decoded = jwt.verify(token, secret);
+    const decodedUnsafe = jwt.decode(token);
+    if (!decodedUnsafe || !decodedUnsafe.sub) {
+      return { valid: false, error: "Invalid token structure" };
+    }
+
+    const derivedSecret = deriveSecret(secret, decodedUnsafe.sub, fpHash);
+    const decoded = jwt.verify(token, derivedSecret);
 
     // Token must be type=refresh
     if (decoded.type !== "refresh") {
@@ -57,3 +70,4 @@ export function verifyRefreshToken(token, fpHash, secret) {
     return { valid: false, error: err.message };
   }
 }
+

@@ -1,30 +1,34 @@
-// src/core/fingerprint.js
-import { SHA256 } from "crypto-es";
-function generateFingerprintHash(rawString) {
-  return SHA256(rawString).toString();
-}
-
 // src/core/tokens.js
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
+function deriveSecret(secret, userId, fpHash) {
+  const pepper = process.env.BRO_AUTH_SECRET_PEPPER;
+  if (!pepper) {
+    throw new Error("BRO_AUTH_SECRET_PEPPER is required");
+  }
+  return crypto.createHmac("sha256", pepper).update(`${secret}|${userId}|${fpHash}`).digest("hex");
+}
 function generateAccessToken(userId, fpHash, secret, expiresIn = "15m") {
+  const derivedSecret = deriveSecret(secret, userId, fpHash);
   return jwt.sign(
     {
       sub: userId,
       fp: fpHash,
       type: "access"
     },
-    secret,
+    derivedSecret,
     { expiresIn }
   );
 }
 function generateRefreshToken(userId, fpHash, secret, expiresIn = "7d") {
+  const derivedSecret = deriveSecret(secret, userId, fpHash);
   return jwt.sign(
     {
       sub: userId,
       fp: fpHash,
       type: "refresh"
     },
-    secret,
+    derivedSecret,
     { expiresIn }
   );
 }
@@ -46,7 +50,12 @@ function safeCompare(a = "", b = "") {
 }
 function verifyAccessToken(token, fpHash, secret) {
   try {
-    const decoded = jwt2.verify(token, secret);
+    const decodedUnsafe = jwt2.decode(token);
+    if (!decodedUnsafe || !decodedUnsafe.sub) {
+      return { valid: false, error: "Invalid token structure" };
+    }
+    const derivedSecret = deriveSecret(secret, decodedUnsafe.sub, fpHash);
+    const decoded = jwt2.verify(token, derivedSecret);
     if (decoded.type !== "access") {
       return { valid: false, error: "Invalid token type" };
     }
@@ -60,7 +69,12 @@ function verifyAccessToken(token, fpHash, secret) {
 }
 function verifyRefreshToken(token, fpHash, secret) {
   try {
-    const decoded = jwt2.verify(token, secret);
+    const decodedUnsafe = jwt2.decode(token);
+    if (!decodedUnsafe || !decodedUnsafe.sub) {
+      return { valid: false, error: "Invalid token structure" };
+    }
+    const derivedSecret = deriveSecret(secret, decodedUnsafe.sub, fpHash);
+    const decoded = jwt2.verify(token, derivedSecret);
     if (decoded.type !== "refresh") {
       return { valid: false, error: "Invalid token type" };
     }
@@ -104,7 +118,6 @@ export {
   buildClearRefreshCookie,
   buildRefreshCookie,
   generateAccessToken,
-  generateFingerprintHash,
   generateRefreshToken,
   generateTokens,
   verifyAccessToken,

@@ -1,6 +1,6 @@
 {
   "name": "bro-auth",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "bro-auth — Stateless, fingerprint-bound JWT authentication. Server utilities + browser fingerprinting module.",
   "type": "module",
   "main": "dist/index.cjs",

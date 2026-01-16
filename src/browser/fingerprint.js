@@ -74,6 +74,8 @@ export async function getFingerprint() {
   const hash = SHA256(normalizedString).toString();
 
   return {
+    normalizedString,
+    components,
     hash,
   };
 }

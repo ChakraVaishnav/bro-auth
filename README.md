@@ -186,8 +186,10 @@ async function handleLogin() {
   
   const { accessToken, refreshToken } = await response.json();
   
-  // Store tokens (see security best practices)
+  // Store access token (see Token Storage Best Practices below)
   sessionStorage.setItem("accessToken", accessToken);
+  
+  // Refresh token is typically set as HTTP-only cookie by the server
 }
 ```
 
@@ -317,13 +319,149 @@ app.post("/api/refresh", (req, res) => {
 
 ---
 
-## Security Best Practices
+## Token Storage Best Practices
+
+### Access Token Storage
+
+You can store access tokens in:
+
+* **HTTP-only cookies** (Recommended) - Most secure, immune to XSS
+* **Session storage** - Good for SPAs, cleared on tab close
+* **Local storage** - Not recommended, vulnerable to XSS attacks
+* **Memory (React state/Vue reactive)** - Secure but lost on page refresh
+
+**Best practice:** Use HTTP-only cookies for maximum security.
+
+#### Example: Storing Access Token in HTTP-only Cookie (Server-side)
+
+```javascript
+import { generateTokens } from "bro-auth/core";
+
+app.post("/api/login", async (req, res) => {
+  const { username, password, fingerprint } = req.body;
+  const user = await authenticateUser(username, password);
+  
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+  
+  const { accessToken, refreshToken } = generateTokens(
+    user.id,
+    fingerprint,
+    process.env.ACCESS_SECRET,
+    process.env.REFRESH_SECRET
+  );
+  
+  // Set access token as HTTP-only cookie
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 15 * 60 * 1000 // 15 minutes
+  });
+  
+  // Set refresh token as HTTP-only cookie
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
+  
+  res.json({ success: true });
+});
+```
+
+### Refresh Token Storage
+
+**Always store refresh tokens in HTTP-only cookies.** 
+
+bro-auth provides a built-in helper method `buildRefreshCookie` to simplify this.
+
+#### Using `buildRefreshCookie`
+
+```javascript
+import { generateTokens, buildRefreshCookie } from "bro-auth/core";
+
+app.post("/api/login", async (req, res) => {
+  const { username, password, fingerprint } = req.body;
+  const user = await authenticateUser(username, password);
+  
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+  
+  const { accessToken, refreshToken } = generateTokens(
+    user.id,
+    fingerprint,
+    process.env.ACCESS_SECRET,
+    process.env.REFRESH_SECRET
+  );
+  
+  // Use bro-auth's built-in helper for refresh token cookie
+  const refreshCookie = buildRefreshCookie(refreshToken);
+  
+  res.cookie(
+    refreshCookie.name,
+    refreshCookie.value,
+    refreshCookie.options
+  );
+  
+  // Return access token (client can store in sessionStorage or cookie)
+  res.json({ accessToken });
+});
+```
+
+#### Custom Configuration for `buildRefreshCookie`
+
+```javascript
+import { buildRefreshCookie } from "bro-auth/core";
+
+// Default: 7 days
+const cookie = buildRefreshCookie(refreshToken);
+
+// Custom expiry: 24 hours
+const cookie24h = buildRefreshCookie(refreshToken, 60 * 60 * 24);
+
+// The cookie object contains:
+// {
+//   name: "bro_refresh",
+//   value: "<token>",
+//   options: {
+//     httpOnly: true,
+//     secure: true,
+//     sameSite: "strict",
+//     path: "/",
+//     maxAge: <seconds>
+//   }
+// }
+```
+
+#### Clearing Refresh Token on Logout
+
+```javascript
+import { buildClearRefreshCookie } from "bro-auth/core";
+
+app.post("/api/logout", (req, res) => {
+  const clearCookie = buildClearRefreshCookie();
+  
+  res.cookie(
+    clearCookie.name,
+    clearCookie.value,
+    clearCookie.options
+  );
+  
+  res.json({ message: "Logged out successfully" });
+});
+```
+
+### Additional Security Best Practices
 
 * Use short-lived access tokens (5–15 min)
-* Store refresh tokens in HTTP-only cookies
-* Enable CSP to reduce XSS risk
+* Enable CSP (Content Security Policy) to reduce XSS risk
 * Rotate secrets on compromise
-* Use HTTPS always
+* Always use HTTPS in production
+* Implement rate limiting on authentication endpoints
 * Treat bro-auth as hardening, not magic
 
 ---
@@ -465,43 +603,72 @@ Verifies a refresh token and fingerprint binding.
 
 ---
 
-#### `buildRefreshCookie(refreshToken, options?)`
+#### `buildRefreshCookie(refreshToken, maxAge?)`
 
-Generates a secure HTTP-only cookie string for refresh tokens.
+Generates a secure HTTP-only cookie configuration object for refresh tokens.
 
 **Parameters:**
 - `refreshToken` (string) - The refresh token
-- `options` (object, optional):
-  - `maxAge` (number) - Cookie lifetime in seconds (default: 604800 = 7 days)
-  - `domain` (string) - Cookie domain
-  - `sameSite` ("Strict" | "Lax" | "None") - SameSite policy (default: "Strict")
-  - `secure` (boolean) - HTTPS only (default: true)
+- `maxAge` (number, optional) - Cookie lifetime in seconds (default: 604800 = 7 days)
 
-**Returns:** `string` (Set-Cookie header value)
+**Returns:** `Object`
+```javascript
+{
+  name: "bro_refresh",
+  value: string,
+  options: {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    path: "/",
+    maxAge: number
+  }
+}
+```
 
 **Example:**
 ```javascript
-const cookie = buildRefreshCookie(refreshToken, {
-  maxAge: 86400,
-  sameSite: "Strict",
-  secure: true
-});
+import { buildRefreshCookie } from "bro-auth/core";
 
-res.setHeader("Set-Cookie", cookie);
+const refreshCookie = buildRefreshCookie(refreshToken);
+
+// Express/Fastify
+res.cookie(
+  refreshCookie.name,
+  refreshCookie.value,
+  refreshCookie.options
+);
+
+// Next.js App Router
+import { cookies } from "next/headers";
+cookies().set(
+  refreshCookie.name,
+  refreshCookie.value,
+  refreshCookie.options
+);
 ```
 
 ---
 
 #### `buildClearRefreshCookie()`
 
-Generates a cookie string to clear the refresh token (for logout).
+Generates a cookie configuration object to clear the refresh token (for logout).
 
-**Returns:** `string`
+**Returns:** `Object` (same structure as `buildRefreshCookie` but with empty value and maxAge: 0)
 
 **Example:**
 ```javascript
+import { buildClearRefreshCookie } from "bro-auth/core";
+
 app.post("/api/logout", (req, res) => {
-  res.setHeader("Set-Cookie", buildClearRefreshCookie());
+  const clearCookie = buildClearRefreshCookie();
+  
+  res.cookie(
+    clearCookie.name,
+    clearCookie.value,
+    clearCookie.options
+  );
+  
   res.json({ message: "Logged out" });
 });
 ```
@@ -753,7 +920,7 @@ Contributions welcome. Please:
 
 ## License
 
-MIT © Vaishnav
+MIT © Vaishnav - Creator of bro-auth
 
 ---
 
@@ -762,3 +929,4 @@ MIT © Vaishnav
 - [NPM Package](https://www.npmjs.com/package/bro-auth)
 - [GitHub Repository](https://github.com/ChakraVaishnav/bro-auth)
 - [Report Issues](https://github.com/ChakraVaishnav/bro-auth/issues)
+- [Portfolio](https://giyu.me)

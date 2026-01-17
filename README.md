@@ -12,6 +12,9 @@
 
 **Stateless JWT authentication with browser fingerprint binding and derived signing keys.**
 
+
+[![npm version](https://img.shields.io/npm/v/bro-auth.svg)](https://www.npmjs.com/package/bro-auth)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ---
 
 ## Overview

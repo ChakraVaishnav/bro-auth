@@ -705,6 +705,8 @@ async function getFingerprint() {
   ].join("|");
   const hash = SHA256(normalizedString).toString();
   return {
+    normalizedString,
+    components,
     hash
   };
 }

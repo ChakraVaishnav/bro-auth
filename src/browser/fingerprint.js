@@ -57,7 +57,7 @@ export async function getFingerprint() {
   };
 
   // ✅ Explicit order (VERY IMPORTANT)
-  const normalizedString = [
+  const raw = [
     components.userAgent,
     components.platform,
     components.language,
@@ -74,8 +74,7 @@ export async function getFingerprint() {
   const hash = SHA256(normalizedString).toString();
 
   return {
-    normalizedString,
-    components,
+    raw,
     hash,
   };
 }

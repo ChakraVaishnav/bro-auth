@@ -1,65 +1,142 @@
+
 # bro-auth
 
-**Stateless JWT authentication with device fingerprint binding and derived signing keys.**
+```
+╔══════════════════════════════════════════════════════════════╗
+║               █▄▄ █▀█ █▀█   █▀█ █ █ ▀█▀ █ █                  ║
+║               █▄█ █▀▄ █▄█   █▀█ █▄█  █  █▀█                  ║
+╠══════════════════════════════════════════════════════════════╣
+║            Stateless JWT · Device Fingerprinting             ║
+╚══════════════════════════════════════════════════════════════╝
+```
 
-[![npm version](https://img.shields.io/npm/v/bro-auth.svg)](https://www.npmjs.com/package/bro-auth)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+**Stateless JWT authentication with browser fingerprint binding and derived signing keys.**
 
 ---
 
 ## Overview
 
-`bro-auth` is a Node.js library that binds JWT tokens to browser devices using fingerprinting and derives signing keys from application-provided secrets. This prevents token replay attacks and limits the impact of token theft.
+bro-auth is a stateless authentication library that strengthens JWT security by binding tokens to a browser/device fingerprint and deriving signing keys per user + device.
 
-**What bro-auth does:**
-- Generates and verifies JWT tokens bound to device fingerprints
-- Derives unique signing secrets per user-device combination using HMAC
-- Provides browser fingerprinting utilities
+It is designed to:
 
-**What bro-auth does NOT do:**
-- Manage secrets or environment variables (your application's responsibility)
-- Prevent XSS attacks (your application's responsibility)
-- Handle login UI or session management (your application's responsibility)
+* Prevent token-only theft
+* Block non-browser and cross-device replay
+* Keep authentication stateless and scalable
+* Be plug-and-play for developers
+
+> **bro-auth strengthens stateless JWT authentication by binding tokens to browser context.**  
+> It is designed to make token theft, cross-device reuse, and blind replay attacks significantly harder — while remaining fully stateless and developer-friendly.
+---
+
+## Why bro-auth?
+
+JWT-based authentication is simple and scalable — but **by default, JWTs are bearer tokens**.  
+If a token is stolen, it can often be reused from anywhere.
+
+**bro-auth raises the security bar without adding server-side state.**
+
+It does this by:
+- Binding tokens to the browser/device that created them
+- Deriving signing keys per user + device context
+- Making token-only theft insufficient for reuse
+- Preventing cross-browser and non-browser replay
+- Keeping the system fully stateless and horizontally scalable
+
+bro-auth is ideal when you want:
+- Better security than plain JWT
+- Zero session storage
+- Simple developer experience
+- Clear, well-defined security trade-offs
+
 
 ---
 
-## Why Use bro-auth?
+## Threat Model (Important – Read This)
 
-Traditional JWT tokens work from any device if stolen. `bro-auth` binds tokens to specific devices, making stolen tokens unusable on different browsers.
+### bro-auth protects against:
 
-### Attack Mitigation
+* JWT copied from logs, storage, or memory
+* Token reuse from a different browser/device
+* Non-browser attacks (curl, Postman, bots)
+* Token swapping across users
+* Blind replay without browser context
 
-For an attacker to successfully use a stolen token, they would need:
+### bro-auth does NOT protect against:
 
-1. The JWT token itself (stolen via XSS, network interception, etc.)
-2. The user ID (embedded in token)
-3. The application's access/refresh secrets
-4. The exact device fingerprint hash (SHA-256)
-5. The application's server-only pepper (`BRO_AUTH_SECRET_PEPPER`)
+* XSS with active JS execution
+* Malicious browser extensions
+* Compromised dependencies running in-browser
+* Replay after fingerprint observation
+* Full device compromise
 
-Even with items 1-4, the attacker cannot:
-- Use the token from a different device (fingerprint mismatch fails verification)
-- Forge new tokens (requires the server-only pepper)
-- Replay the token (derived secret verification fails)
+> **This is a hard limit of stateless authentication, not a bug.**
 
-### Security Scope & Limitations
+---
 
-**What bro-auth protects against:**
-- Token replay from different devices
-- Token forgery without server secrets
-- Credential stuffing across devices
+## High-Level Design
 
-**What bro-auth does NOT protect against:**
-- XSS attacks during active execution (attacker can make requests while JS runs)
-- Full server compromise (if secrets are leaked, all bets are off)
-- Social engineering or phishing attacks
-- Browser fingerprint spoofing (though difficult, it's theoretically possible)
+### Core idea
 
-**Your application must:**
-- Implement XSS prevention (CSP, input sanitization, etc.)
-- Store tokens securely (HTTP-only cookies for refresh tokens)
-- Protect environment variables and secrets
-- Use HTTPS in production
+A JWT is only valid if the same browser fingerprint that created it is presented again.
+
+### Authentication Flow
+
+#### 1. Login
+
+```
+Browser                                  Server
+  │
+  ├─ Generate RAW fingerprint
+  │  (Canvas, GPU, UA, timezone, etc.)
+  │
+  ├─ POST /login ─────────────────────▶ Verify credentials
+  │  { username, password, rawFP }      │
+  │                                     ├─ Normalize & hash fingerprint:
+  │                                     │  fpHash = SHA256(rawFP)
+  │                                     │
+  │                                     ├─ Derive signing secret:
+  │                                     │  HMAC(pepper, secret|userId|fpHash)
+  │                                     │
+  │                                     ├─ Sign JWT
+  │                                     │  Payload: { sub, fp: fpHash }
+  │
+  ◀──────────────────────────────────── Return tokens
+```
+
+#### 2. Protected API Request
+
+```
+Browser                                  Server
+  │
+  ├─ GET /api/protected ──────────────▶
+  │  Authorization: Bearer <token>     │
+  │  X-Fingerprint: <rawFP>            │
+  │                                    │
+  │                                    ├─ Hash fingerprint again:
+  │                                    │  SHA256(rawFP)
+  │                                    │
+  │                                    ├─ Re-derive signing secret
+  │                                    │
+  │                                    ├─ Verify JWT signature
+  │                                    │
+  │                                    ├─ Compare fp hashes
+  │                                    │
+  ◀──────────────────────────────────── Access granted
+```
+
+### Why Token-Only Theft Fails
+
+If an attacker steals **only the JWT:**
+
+* They do not know the browser fingerprint
+* Signature verification fails
+* Token cannot be reused elsewhere
+
+If the attacker also steals the raw fingerprint:
+
+* Replay may succeed until token expiry
+* This is a known stateless limitation
 
 ---
 
@@ -71,104 +148,28 @@ npm install bro-auth
 
 ---
 
-## How It Works
+## Environment Variables
 
-### 1. Authentication Flow
-
-```
-Browser                                    Server
-  │
-  ├─ Generate fingerprint hash
-  │  (Canvas, GPU, User-Agent, etc.)
-  │
-  ├─ POST /login ────────────────────────▶ Verify credentials
-  │  { username, password, fpHash }        │
-  │                                        ├─ Derive signing secret:
-  │                                        │  HMAC(pepper, secret|userId|fpHash)
-  │                                        │
-  │                                        ├─ Sign JWT with derived secret
-  │                                        │  Payload: { sub: userId, fp: fpHash }
-  │                                        │
-  │  ◀──────────────────────────────────── Return tokens
-  │  { accessToken, refreshToken }
-  │
+```bash
+BRO_AUTH_SECRET_PEPPER=long-random-server-only-value
+ACCESS_SECRET=your-access-secret
+REFRESH_SECRET=your-refresh-secret
 ```
 
-### 2. Verification Flow
-
-```
-Browser                                    Server
-  │
-  ├─ GET /api/protected ─────────────────▶ Extract token & fpHash
-  │  Headers:                              │
-  │    Authorization: Bearer <token>       ├─ Decode token (unsafe)
-  │    X-Fingerprint: <fpHash>             │  Extract userId from payload
-  │                                        │
-  │                                        ├─ Re-derive signing secret:
-  │                                        │  HMAC(pepper, secret|userId|fpHash)
-  │                                        │
-  │                                        ├─ Verify JWT signature
-  │                                        │  jwt.verify(token, derivedSecret)
-  │                                        │
-  │                                        ├─ Compare fingerprints
-  │                                        │  payload.fp === request.fpHash
-  │                                        │
-  │  ◀──────────────────────────────────── Grant access ✓
-  │
-```
-
-### 3. Why Stolen Tokens Fail
-
-```
-Attacker (Different Device)                Server
-  │
-  ├─ GET /api/protected ─────────────────▶ Extract token & fpHash
-  │  Token: <stolen_token>                 │
-  │  Fingerprint: <attacker_fp_hash>       ├─ Decode token
-  │                                        │  payload.fp = <victim_fp_hash>
-  │                                        │
-  │                                        ├─ Derive secret using attacker's FP:
-  │                                        │  HMAC(pepper, secret|userId|attacker_fp)
-  │                                        │
-  │                                        ├─ Verify signature
-  │                                        │  ✗ FAILS - Different derived secret
-  │                                        │
-  │  ◀──────────────────────────────────── Reject: "invalid signature"
-  │
-```
-
-**Key insight:** The signing secret is derived from the fingerprint. A different fingerprint produces a different secret, causing signature verification to fail.
+> ⚠️ **These secrets must never be exposed to the browser.**
 
 ---
 
-## Quick Start
+## Browser Usage
 
-### Step 1: Configure Environment Variables
-
-Create a `.env` file in your application (NOT in bro-auth):
-
-```bash
-# Required: Application-owned server-only pepper
-# bro-auth requires this but does NOT provide it
-BRO_AUTH_SECRET_PEPPER=your-random-string-min-32-chars-never-expose
-
-# Your application's JWT signing secrets
-ACCESS_SECRET=your-access-secret-min-32-chars
-REFRESH_SECRET=your-refresh-secret-min-32-chars
-```
-
-**Important:** These are YOUR application's secrets. `bro-auth` reads them but does not manage or provide them.
-
-### Step 2: Browser - Generate Fingerprint
+### Generate fingerprint (RAW)
 
 ```javascript
 import { getFingerprint } from "bro-auth/browser";
 
 async function handleLogin() {
   // Generate device fingerprint hash
-  const fpHash = await getFingerprint();
-  
-  // fpHash is a string: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  const rawFingerprint = await getFingerprint();
   
   const response = await fetch("/api/login", {
     method: "POST",
@@ -176,7 +177,7 @@ async function handleLogin() {
     body: JSON.stringify({
       username: "user@example.com",
       password: "password123",
-      fingerprint: fpHash
+      fingerprint: rawFingerprint
     })
   });
   
@@ -187,7 +188,14 @@ async function handleLogin() {
 }
 ```
 
-### Step 3: Server - Generate Tokens
+**Returns:** A normalized raw string  
+**Note:** Never hashed on the client, sent as-is to the backend
+
+---
+
+## Server Usage
+
+### Generate Tokens
 
 ```javascript
 import { generateTokens } from "bro-auth/core";
@@ -204,7 +212,7 @@ app.post("/api/login", async (req, res) => {
   // 2. Generate device-bound tokens
   const { accessToken, refreshToken } = generateTokens(
     user.id,                          // userId
-    fingerprint,                      // fpHash from browser
+    fingerprint,                      // RAW fingerprint from browser
     process.env.ACCESS_SECRET,        // your secret
     process.env.REFRESH_SECRET        // your secret
   );
@@ -213,7 +221,9 @@ app.post("/api/login", async (req, res) => {
 });
 ```
 
-### Step 4: Server - Verify Requests
+> **Note:** bro-auth hashes the fingerprint internally using SHA-256.
+
+### Verify Access Token
 
 ```javascript
 import { verifyAccessToken } from "bro-auth/core";
@@ -228,7 +238,7 @@ app.get("/api/protected", (req, res) => {
   
   const result = verifyAccessToken(
     token,
-    fingerprint,
+    fingerprint,                      // RAW fingerprint
     process.env.ACCESS_SECRET
   );
   
@@ -242,7 +252,37 @@ app.get("/api/protected", (req, res) => {
 });
 ```
 
-### Step 5: Server - Refresh Tokens
+### Why RAW FP → Server-Side Hashing?
+
+* Prevents trusting client-side hashes blindly
+* Ensures consistent normalization
+* Improves debuggability
+* Avoids mismatch bugs
+* Keeps hashing logic centralized
+
+> **Hashing is not claimed as replay prevention** — it is a binding and consistency mechanism.
+
+---
+
+## API Reference (Key Functions)
+
+### `getFingerprint()`
+
+Returns normalized raw fingerprint string.
+
+### `generateTokens(userId, rawFP, accessSecret, refreshSecret)`
+
+* Hashes fingerprint internally
+* Derives signing secrets
+* Issues access + refresh tokens
+
+### `verifyAccessToken(token, rawFP, secret)`
+
+* Hashes fingerprint again
+* Re-derives signing key
+* Verifies JWT integrity & binding
+
+### Refresh Tokens
 
 ```javascript
 import { verifyRefreshToken, generateTokens } from "bro-auth/core";
@@ -274,7 +314,18 @@ app.post("/api/refresh", (req, res) => {
 
 ---
 
-## API Reference
+## Security Best Practices
+
+* Use short-lived access tokens (5–15 min)
+* Store refresh tokens in HTTP-only cookies
+* Enable CSP to reduce XSS risk
+* Rotate secrets on compromise
+* Use HTTPS always
+* Treat bro-auth as hardening, not magic
+
+---
+
+## Full API Reference
 
 ### Browser Module (`bro-auth/browser`)
 
@@ -469,101 +520,38 @@ Derives a unique signing secret using HMAC-SHA256 with the application's pepper.
 
 ---
 
-## Security Best Practices
+## FAQ (Corrected)
 
-### 1. Environment Variables
+**"Is bro-auth replay-proof?"**
 
-Never hardcode secrets. Use environment variables:
+❌ No.  
+It blocks token-only replay, not replay after full browser compromise.
 
-```bash
-# .env (add to .gitignore)
-BRO_AUTH_SECRET_PEPPER=min-32-chars-random-string
-ACCESS_SECRET=min-32-chars-random-string
-REFRESH_SECRET=min-32-chars-random-string
-```
+**"Is this better than plain JWT?"**
 
-Generate secrets using:
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+✅ Yes. Significantly.
 
-### 2. Token Storage
+**"Is this WebAuthn?"**
 
-**Access tokens:**
-- Store in memory (React state, Vue reactive)
-- Session storage is acceptable for SPAs
-- **Never** in localStorage (XSS vulnerable)
-
-**Refresh tokens:**
-- HTTP-only, Secure, SameSite=Strict cookies (recommended)
-- **Never** accessible to JavaScript
-
-**Example:**
-```javascript
-// ✓ Good: In-memory
-const [accessToken, setAccessToken] = useState(null);
-
-// ✗ Bad: localStorage
-localStorage.setItem("token", accessToken); // XSS vulnerable
-```
-
-### 3. HTTPS Only
-
-Always use HTTPS in production:
-
-```javascript
-const cookie = buildRefreshCookie(refreshToken, {
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "Strict"
-});
-```
-
-### 4. Short-Lived Access Tokens
-
-Keep access token TTL short (5-15 minutes):
-
-```javascript
-generateAccessToken(userId, fpHash, secret, "15m");
-```
-
-### 5. Token Rotation
-
-Rotate refresh tokens on each use:
-
-```javascript
-app.post("/api/refresh", async (req, res) => {
-  const result = verifyRefreshToken(/* ... */);
-  
-  if (result.valid) {
-    // Issue new token pair
-    const newTokens = generateTokens(/* ... */);
-    
-    // Optional: Invalidate old refresh token in database
-    await revokeToken(req.body.refreshToken);
-    
-    res.json(newTokens);
-  }
-});
-```
-
-### 6. Rate Limiting
-
-Implement rate limiting on auth endpoints:
-
-```javascript
-import rateLimit from "express-rate-limit";
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5
-});
-
-app.post("/api/login", loginLimiter, handleLogin);
-```
+❌ No.  
+bro-auth is stateless. WebAuthn is stateful + hardware-backed.
 
 ---
 
-## Framework Examples
+## Final Positioning (Important)
+
+**bro-auth is a stateless JWT hardening library.**  
+It raises the bar against real-world JWT misuse while remaining scalable and developer-friendly.
+
+That statement is:
+
+* technically correct
+* interview-safe
+* production-honest
+
+---
+
+## Advanced Framework Examples
 
 ### Express.js Middleware
 
@@ -715,55 +703,6 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
-```
-
----
-
-## FAQ
-
-**Q: Can users have multiple devices?**
-
-A: Yes. Each device generates its own fingerprint. Issue separate token pairs for each device. Optionally track active sessions by storing fingerprint hashes.
-
-**Q: What if the fingerprint changes (browser update)?**
-
-A: The user must re-authenticate. This is intentional—it prevents fingerprint spoofing. For better UX, implement a "trusted devices" feature or send email notifications for new logins.
-
-**Q: What about privacy concerns?**
-
-A: The fingerprint is SHA-256 hashed before transmission. Only the hash is sent to the server. However, disclose fingerprinting in your privacy policy and comply with GDPR/CCPA.
-
-**Q: Does this work with mobile apps?**
-
-A: The browser module is web-only. For mobile apps, use native device identifiers:
-- iOS: `identifierForVendor`
-- Android: `ANDROID_ID`
-- React Native: `react-native-device-info`
-
-**Q: How do I invalidate tokens immediately?**
-
-A: `bro-auth` is stateless, so tokens can't be revoked until expiry. For immediate invalidation:
-- Maintain a token blacklist in Redis
-- Use short-lived access tokens (5-15 min)
-- Implement token versioning (increment on password change)
-
-**Q: Can I use this with GraphQL?**
-
-A: Yes. Pass credentials in HTTP headers:
-
-```javascript
-const client = new ApolloClient({
-  uri: '/graphql',
-  request: async (operation) => {
-    const fpHash = await getFingerprint();
-    operation.setContext({
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'x-fingerprint': fpHash
-      }
-    });
-  }
-});
 ```
 
 ---
